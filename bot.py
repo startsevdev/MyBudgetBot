@@ -17,9 +17,11 @@ WAIT_SIGN = 0
 WAIT_SUM = 1
 WAIT_CATEGORY = 2
 
-output_categories = ["Гигиена", "Еда", "Жилье", "Здоровье", "Кафе",
-                     "Машина", "Одежда", "Питомцы", "Подарки", "Развлечения",
-                     "Связь", "Спорт", "Счета", "Такси", "Транспорт"]
+output_categories = [["Гигиена", "Еда", "Жилье"],
+                     ["Здоровье", "Кафе", "Машина"],
+                     ["Одежда", "Питомцы", "Подарки"],
+                     ["Отдых", "Связь", "Спорт"],
+                     ["Счета", "Такси", "Транспорт"]]
 
 input_categories = ["Депозиты", "Зарплата", "Сбережения"]
 
@@ -110,7 +112,8 @@ def update_sign(message):
         bot.send_message(message.chat.id, "🔴 Ошибка")
     else:
         conn.commit()
-        bot.send_message(message.chat.id, "Ведите сумму")
+        remove_keyboard = types.ReplyKeyboardRemove()
+        bot.send_message(message.chat.id, "Введите сумму", reply_markup=remove_keyboard)
 
     conn.close()
 
@@ -165,10 +168,18 @@ def add_transaction(message):
         bot.send_message(message.chat.id, "🔴 Ошибка")
     else:
         bot.send_message(message.chat.id, "Запись добавлена!")
-        signs_keyboard(message)
+        signs_keyboard(message, "Введите знак: ")
 
         conn.commit()
 
+    conn.close()
+
+
+def cancel_transaction(message):
+    conn = sqlite3.connect('mbb_data.db')
+    cursor = conn.cursor()
+    cursor.execute("UPDATE users SET state = 0, sign = NULL, sum = NULL WHERE chat_id = {}".format(message.chat.id))
+    conn.commit()
     conn.close()
 
 
@@ -179,17 +190,16 @@ def stat_day(message):
 
     conn = sqlite3.connect('mbb_data.db')
     cursor = conn.cursor()
-
     cursor.execute('''
     SELECT sum
     FROM transactions 
     WHERE (chat_id = {}) AND (date = "{}")'''.format(message.chat.id, date))
-
     result = cursor.fetchall()
-
     conn.close()
 
     bot.send_message(message.chat.id, "Баланс за день: {}".format(return_balance(result)))
+    cancel_transaction(message)
+    signs_keyboard(message, "Введите знак: ")
 
 
 def stat_week(message):
@@ -197,17 +207,16 @@ def stat_week(message):
 
     conn = sqlite3.connect('mbb_data.db')
     cursor = conn.cursor()
-
     cursor.execute('''
     SELECT sum
     FROM transactions 
     WHERE chat_id = {} AND strftime('%W%Y', date) = strftime('%W%Y', "{}")'''.format(message.chat.id, now))
-
     result = cursor.fetchall()
-
     conn.close()
 
     bot.send_message(message.chat.id, "Баланс за неделю: {}".format(return_balance(result)))
+    cancel_transaction(message)
+    signs_keyboard(message, "Введите знак: ")
 
 
 def stat_month(message):
@@ -215,17 +224,16 @@ def stat_month(message):
 
     conn = sqlite3.connect('mbb_data.db')
     cursor = conn.cursor()
-
     cursor.execute('''
     SELECT sum
     FROM transactions 
     WHERE chat_id = {} AND strftime('%Y-%m', date) = strftime('%Y-%m', "{}")'''.format(message.chat.id, now))
-
     result = cursor.fetchall()
-
     conn.close()
 
     bot.send_message(message.chat.id, "Баланс за месяц: {}".format(return_balance(result)))
+    cancel_transaction(message)
+    signs_keyboard(message, "Введите знак: ")
 
 
 def stat_year(message):
@@ -233,41 +241,40 @@ def stat_year(message):
 
     conn = sqlite3.connect('mbb_data.db')
     cursor = conn.cursor()
-
     cursor.execute('''
     SELECT sum
     FROM transactions 
     WHERE chat_id = {} AND strftime('%Y', date) = strftime('%Y', "{}")'''.format(message.chat.id, now))
-
     result = cursor.fetchall()
-
     conn.close()
 
     bot.send_message(message.chat.id, "Баланс за год: {}".format(return_balance(result)))
+    cancel_transaction(message)
+    signs_keyboard(message, "Введите знак: ")
 
 
 # KEYBOARDS:
 
-def signs_keyboard(message):
+def signs_keyboard(message, keyboard_message):
     keyboard = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
     keyboard.add("+")
     keyboard.add("-")
 
-    bot.send_message(message.chat.id, "Выберите знак", reply_markup=keyboard)
+    bot.send_message(message.chat.id, keyboard_message, reply_markup=keyboard)
 
 
 def input_categories_keyboard(message):
-    keyboard = types.InlineKeyboardMarkup()
+    keyboard = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
     for category in input_categories:
-        keyboard.add(types.InlineKeyboardButton(text=category, callback_data=category))
+        keyboard.add(category)
 
     bot.send_message(message.chat.id, "Выберите категорию: ", reply_markup=keyboard)
 
 
 def output_categories_keyboard(message):
-    keyboard = types.InlineKeyboardMarkup()
-    for category in output_categories:
-        keyboard.add(types.InlineKeyboardButton(text=category, callback_data=category))
+    keyboard = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+    for row in output_categories:
+        keyboard.row(row[0], row[1], row[2])
 
     bot.send_message(message.chat.id, "Выберите категорию: ", reply_markup=keyboard)
 
@@ -276,8 +283,11 @@ def output_categories_keyboard(message):
 
 @bot.message_handler(commands=['test'])
 def test(message):
-    console_print(message)
-    input_categories_keyboard(message)
+    keyboard = types.ReplyKeyboardMarkup()
+    for row in output_categories:
+        keyboard.row(row[0], row[1], row[2], row[3], row[4])
+
+    bot.send_message(message.chat.id, "Выберите категорию: ", reply_markup=keyboard)
 
 
 @bot.callback_query_handler(func=lambda call: True)
@@ -295,7 +305,30 @@ def start(message):
     add_user(message)
 
     bot.send_message(message.chat.id, "Добро пожаловать, {}!".format(return_name(message)))
-    signs_keyboard(message)
+    signs_keyboard(message, "Введите знак: ")
+
+
+@bot.message_handler(commands=['help'])
+def help(message):
+    console_print(message)
+
+    help_msg = '''
+    Команды для управления ботом:
+    
+    /cancel - Отменить ввод
+    
+    /day — Статистика за день
+    
+    /week — Статистика за неделю
+    
+    /month — Статистика за месяц
+    
+    /year — Статистика за год
+    
+    /help — Список всех комманд
+    '''
+
+    bot.send_message(message.chat.id, help_msg)
 
 
 @bot.message_handler(commands=['day'])
@@ -322,6 +355,13 @@ def year(message):
     stat_year(message)
 
 
+@bot.message_handler(commands=['cancel'])
+def cancel(message):
+    console_print(message)
+    cancel_transaction(message)
+    signs_keyboard(message, "Ввод отменен. Введите знак: ")
+
+
 @bot.message_handler()
 def giving_text(message):
     console_print(message)
@@ -332,7 +372,7 @@ def giving_text(message):
         else:
             bot.send_message(message.chat.id, "🔴 Ошибка. Введите знак")
     elif return_state(message) == 1:
-        if message.text.isdigit():
+        if message.text.isdigit() and len(message.text) <= 18:
             update_sum(message)
         else:
             bot.send_message(message.chat.id, "🔴 Ошибка. Введите сумму")
