@@ -17,11 +17,8 @@ WAIT_SIGN = 0
 WAIT_SUM = 1
 WAIT_CATEGORY = 2
 
-output_categories = [["Гигиена", "Еда", "Жилье"],
-                     ["Здоровье", "Кафе", "Машина"],
-                     ["Одежда", "Питомцы", "Подарки"],
-                     ["Отдых", "Связь", "Спорт"],
-                     ["Счета", "Такси", "Транспорт"]]
+output_categories = ["Гигиена", "Еда", "Жилье", "Здоровье", "Кафе", "Машина", "Одежда", "Питомцы",
+                     "Подарки", "Отдых", "Связь", "Спорт", "Счета", "Такси", "Транспорт"]
 
 input_categories = ["Депозиты", "Зарплата", "Сбережения"]
 
@@ -45,7 +42,6 @@ def return_name(message):
 def return_state(message):
     conn = sqlite3.connect('mbb_data.db')
     cursor = conn.cursor()
-
     cursor.execute("SELECT state FROM users WHERE chat_id = {}".format(message.chat.id))
     state = cursor.fetchone()
 
@@ -62,7 +58,6 @@ def return_state(message):
 
 def return_balance(result):
     balance = 0
-
     for tple in result:
         for i in tple:
             balance += i
@@ -76,9 +71,7 @@ def return_balance(result):
 def set_state(message, state):
     conn = sqlite3.connect('mbb_data.db')
     cursor = conn.cursor()
-
     cursor.execute("UPDATE users SET state = {} WHERE chat_id = {}".format(state, message.chat.id))
-
     conn.commit()
     conn.close()
 
@@ -150,18 +143,12 @@ def add_transaction(message):
     try:
         cursor.execute("SELECT sign FROM users WHERE chat_id = {}". format(message.chat.id))
         sign = cursor.fetchone()[0]
-
         cursor.execute("SELECT sum FROM users WHERE chat_id = {}".format(message.chat.id))
         sum = cursor.fetchone()[0]
-
         pay = int(sign + str(sum))
-
         category = message.text
-
         date = datetime.strftime(datetime.now(), "%Y-%m-%d")
-
-        cursor.execute("INSERT INTO transactions VALUES ({}, {}, '{}', '{}')".format(message.chat.id, pay, category, date))
-
+        cursor.execute("INSERT INTO transactions VALUES (NULL, {}, {}, '{}', '{}')".format(message.chat.id, pay, category, date))
         cursor.execute("UPDATE users SET state = 0, sign = NULL, sum = NULL WHERE chat_id = {}".format(message.chat.id))
     except sqlite3.DatabaseError as err:
         print("Error: ", err)
@@ -187,17 +174,27 @@ def cancel_transaction(message):
 
 def stat_day(message):
     date = datetime.strftime(datetime.now(), '%Y-%m-%d')
+    categories_dict = {}
+    msg = ""
 
     conn = sqlite3.connect('mbb_data.db')
     cursor = conn.cursor()
-    cursor.execute('''
-    SELECT sum
-    FROM transactions 
-    WHERE (chat_id = {}) AND (date = "{}")'''.format(message.chat.id, date))
-    result = cursor.fetchall()
+
+    for category in output_categories:
+        cursor.execute('''
+        SELECT sum
+        FROM transactions 
+        WHERE chat_id = {} AND date = "{}" AND category = "{}"'''.format(message.chat.id, date, category))
+        result = cursor.fetchone()
+        if result == None:
+            categories_dict[category] = 0
+        else:
+            categories_dict[category] = result[0]
+
+        msg += "{}: {}\n".format(category, categories_dict[category])
     conn.close()
 
-    bot.send_message(message.chat.id, "Баланс за день: {}".format(return_balance(result)))
+    bot.send_message(message.chat.id, msg)
     cancel_transaction(message)
     signs_keyboard(message, "Введите знак: ")
 
@@ -273,7 +270,11 @@ def input_categories_keyboard(message):
 
 def output_categories_keyboard(message):
     keyboard = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
-    for row in output_categories:
+
+    rows = []
+    for i in range(0, len(output_categories), 3):
+        rows.append(output_categories[i: i + 3])
+    for row in rows:
         keyboard.row(row[0], row[1], row[2])
 
     bot.send_message(message.chat.id, "Выберите категорию: ", reply_markup=keyboard)
