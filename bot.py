@@ -172,80 +172,40 @@ def cancel_transaction(message):
 
 # DISPLAY DATA FUNCTIONS
 
-def stat_day(message):
-    date = datetime.strftime(datetime.now(), '%Y-%m-%d')
-    categories_dict = {}
-    msg = ""
+def stat(message, period):
+    if period == "day":
+        per = "%d-%m-%Y"
+    elif period == "week":
+        per = "%W-%Y"
+    elif period == "month":
+        per = "%m-%Y"
+    elif period == "year":
+        per ="%Y"
+
+    now = datetime.strftime(datetime.now(), "%Y-%m-%d")
+    output_sum = 0
+    categories_list = []
+    msg = "Расходы за день: \n"
 
     conn = sqlite3.connect('mbb_data.db')
     cursor = conn.cursor()
-
     for category in output_categories:
         cursor.execute('''
-        SELECT sum
-        FROM transactions 
-        WHERE chat_id = {} AND date = "{}" AND category = "{}"'''.format(message.chat.id, date, category))
+            SELECT sum
+            FROM transactions 
+            WHERE chat_id = {} 
+            AND strftime("{}", date) = strftime("{}", "{}")
+            AND category = "{}"'''.format(message.chat.id, per, per, now, category))
         result = cursor.fetchone()
-        if result == None:
-            categories_dict[category] = 0
-        else:
-            categories_dict[category] = result[0]
-
-        msg += "{}: {}\n".format(category, categories_dict[category])
+        if result != None:
+            categories_list.append([category, result[0]])
+            output_sum += result[0]
     conn.close()
+
+    for category in categories_list:
+        msg += "{}: {} ({}%)\n".format(category[0], category[1], round(category[1] / output_sum * 100))
 
     bot.send_message(message.chat.id, msg)
-    cancel_transaction(message)
-    signs_keyboard(message, "Введите знак: ")
-
-
-def stat_week(message):
-    now = datetime.strftime(datetime.now(), '%Y-%m-%d')
-
-    conn = sqlite3.connect('mbb_data.db')
-    cursor = conn.cursor()
-    cursor.execute('''
-    SELECT sum
-    FROM transactions 
-    WHERE chat_id = {} AND strftime('%W%Y', date) = strftime('%W%Y', "{}")'''.format(message.chat.id, now))
-    result = cursor.fetchall()
-    conn.close()
-
-    bot.send_message(message.chat.id, "Баланс за неделю: {}".format(return_balance(result)))
-    cancel_transaction(message)
-    signs_keyboard(message, "Введите знак: ")
-
-
-def stat_month(message):
-    now = datetime.strftime(datetime.now(), '%Y-%m-%d')
-
-    conn = sqlite3.connect('mbb_data.db')
-    cursor = conn.cursor()
-    cursor.execute('''
-    SELECT sum
-    FROM transactions 
-    WHERE chat_id = {} AND strftime('%Y-%m', date) = strftime('%Y-%m', "{}")'''.format(message.chat.id, now))
-    result = cursor.fetchall()
-    conn.close()
-
-    bot.send_message(message.chat.id, "Баланс за месяц: {}".format(return_balance(result)))
-    cancel_transaction(message)
-    signs_keyboard(message, "Введите знак: ")
-
-
-def stat_year(message):
-    now = datetime.strftime(datetime.now(), '%Y-%m-%d')
-
-    conn = sqlite3.connect('mbb_data.db')
-    cursor = conn.cursor()
-    cursor.execute('''
-    SELECT sum
-    FROM transactions 
-    WHERE chat_id = {} AND strftime('%Y', date) = strftime('%Y', "{}")'''.format(message.chat.id, now))
-    result = cursor.fetchall()
-    conn.close()
-
-    bot.send_message(message.chat.id, "Баланс за год: {}".format(return_balance(result)))
     cancel_transaction(message)
     signs_keyboard(message, "Введите знак: ")
 
@@ -335,25 +295,25 @@ def help(message):
 @bot.message_handler(commands=['day'])
 def day(message):
     console_print(message)
-    stat_day(message)
+    stat(message, "day")
 
 
 @bot.message_handler(commands=['week'])
 def week(message):
     console_print(message)
-    stat_week(message)
+    stat(message, "week")
 
 
 @bot.message_handler(commands=['month'])
 def month(message):
     console_print(message)
-    stat_month(message)
+    stat(message, "month")
 
 
 @bot.message_handler(commands=['year'])
 def year(message):
     console_print(message)
-    stat_year(message)
+    stat(message, "year")
 
 
 @bot.message_handler(commands=['cancel'])
