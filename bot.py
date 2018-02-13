@@ -5,7 +5,7 @@ import sys
 import sqlite3
 import telebot
 from telebot import types
-from datetime import datetime
+from datetime import datetime, timedelta
 sys.path.append("../")
 import tokens
 
@@ -56,17 +56,7 @@ def return_state(message):
     conn.close()
 
 
-def return_balance(result):
-    balance = 0
-    for tple in result:
-        for i in tple:
-            balance += i
-
-    return balance
-
-
 # ADD AND UPDATE DATA FUNCTIONS:
-
 
 def set_state(message, state):
     conn = sqlite3.connect('mbb_data.db')
@@ -172,23 +162,51 @@ def cancel_transaction(message):
 
 # DISPLAY DATA FUNCTIONS
 
-def stat(message, period):
-    if period == "day":
-        per = "%d-%m-%Y"
-    elif period == "week":
-        per = "%W-%Y"
-    elif period == "month":
-        per = "%m-%Y"
-    elif period == "year":
-        per ="%Y"
+def return_balance(cursor, message, per, now):
+    balance = 0
+    cursor.execute('''
+        SELECT sum
+        FROM transactions 
+        WHERE (chat_id = {}) 
+        AND strftime("{}", date) = strftime("{}", "{}")'''.format(message.chat.id, per, per, now))
+    result = cursor.fetchall()
+    print(result)
 
-    now = datetime.strftime(datetime.now(), "%Y-%m-%d")
+    for tple in result:
+        for i in tple:
+            balance += i
+
+    return balance
+
+
+def stat(message, period):
+    now = datetime.today()
     output_sum = 0
     categories_list = []
-    msg = "Расходы за день: \n"
+
+    if period == "day":
+        per = "%d%m%Y"
+        period_string = now.strftime("%A, %d %B")
+    elif period == "week":
+        per = "%W%Y"
+        monday_date = now - timedelta(now.weekday())
+        sunday_date = now + timedelta(6 - now.weekday())
+        period_string = "{} - {}".format(monday_date.strftime("%d %B"), sunday_date.strftime("%d %B"))
+    elif period == "month":
+        per = "%m%Y"
+        period_string = now.strftime("%B")
+    elif period == "year":
+        per = "%Y"
+        period_string = now.strftime("%Y")
+    else:
+        per = "%d%m%Y"
+        period_string = per
+
+    msg = "{}\n\n".format(period_string)
 
     conn = sqlite3.connect('mbb_data.db')
     cursor = conn.cursor()
+    balance = return_balance(cursor, message, per, now)
     for category in output_categories:
         cursor.execute('''
             SELECT sum
@@ -203,7 +221,8 @@ def stat(message, period):
     conn.close()
 
     for category in categories_list:
-        msg += "{}: {} ({}%)\n".format(category[0], category[1], round(category[1] / output_sum * 100))
+        msg += "{}: {} ({}%)\n".format(category[0], abs(category[1]), round(category[1] / output_sum * 100))
+    msg += "\nБаланс: {}".format(balance)
 
     bot.send_message(message.chat.id, msg)
     cancel_transaction(message)
