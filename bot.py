@@ -2,12 +2,15 @@
 
 
 import sys
+import locale
 import sqlite3
 import telebot
 from telebot import types
 from datetime import datetime, timedelta
 sys.path.append("../")
 import tokens
+
+locale.setlocale(locale.LC_ALL, 'RU')
 
 print("\n- - - StartsevDev's MyBudgetBot - - -\n")
 
@@ -16,6 +19,9 @@ bot = telebot.TeleBot(tokens.MyBudgetBot)
 WAIT_SIGN = 0
 WAIT_SUM = 1
 WAIT_CATEGORY = 2
+
+months = ["января", "февраля", "марта", "апреля", "мая", "июня",
+          "июля", "августа", "сентября", "октября", "ноября", "декабря"]
 
 output_categories = ["Гигиена", "Еда", "Жилье", "Здоровье", "Кафе", "Машина", "Одежда", "Питомцы",
                      "Подарки", "Отдых", "Связь", "Спорт", "Счета", "Такси", "Транспорт"]
@@ -144,10 +150,9 @@ def add_transaction(message):
         print("Error: ", err)
         bot.send_message(message.chat.id, "🔴 Ошибка")
     else:
-        bot.send_message(message.chat.id, "Запись добавлена!")
-        signs_keyboard(message, "Введите знак: ")
-
         conn.commit()
+        bot.send_message(message.chat.id, "Запись добавлена!")
+        stat(message, "day")
 
     conn.close()
 
@@ -170,7 +175,6 @@ def return_balance(cursor, message, per, now):
         WHERE (chat_id = {}) 
         AND strftime("{}", date) = strftime("{}", "{}")'''.format(message.chat.id, per, per, now))
     result = cursor.fetchall()
-    print(result)
 
     for tple in result:
         for i in tple:
@@ -186,18 +190,19 @@ def stat(message, period):
 
     if period == "day":
         per = "%d%m%Y"
-        period_string = now.strftime("%A, %d %B")
+        period_string = now.strftime("%A, ").title() + "{} ".format(int(now.strftime("%d"))) + months[int(now.strftime("%m"))]
     elif period == "week":
         per = "%W%Y"
-        monday_date = now - timedelta(now.weekday())
-        sunday_date = now + timedelta(6 - now.weekday())
-        period_string = "{} - {}".format(monday_date.strftime("%d %B"), sunday_date.strftime("%d %B"))
+        monday = now - timedelta(now.weekday())
+        sunday = now + timedelta(6 - now.weekday())
+        period_string = "{} ".format(int(monday.strftime("%d"))) + months[int(monday.strftime("%m"))] + \
+                        " — {} ".format(int(sunday.strftime("%d"))) + months[int(sunday.strftime("%m"))]
     elif period == "month":
         per = "%m%Y"
         period_string = now.strftime("%B")
     elif period == "year":
         per = "%Y"
-        period_string = now.strftime("%Y")
+        period_string = now.strftime("%Y год")
     else:
         per = "%d%m%Y"
         period_string = per
