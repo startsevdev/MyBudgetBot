@@ -165,15 +165,49 @@ def cancel_transaction(message):
     conn.close()
 
 
+def set_period(chat_id, per):
+    conn = sqlite3.connect('mbb_data.db')
+    cursor = conn.cursor()
+    cursor.execute("UPDATE users SET period = '{}' WHERE chat_id = {}".format(per, chat_id))
+    conn.commit()
+    conn.close()
+
+
+def set_date(chat_id, date):
+    conn = sqlite3.connect('mbb_data.db')
+    cursor = conn.cursor()
+    cursor.execute("UPDATE users SET date = '{}' WHERE chat_id = {}".format(date, chat_id))
+    conn.commit()
+    conn.close()
+
+
+def return_date(chat_id):
+    conn = sqlite3.connect('mbb_data.db')
+    cursor = conn.cursor()
+    cursor.execute("SELECT date FROM users WHERE chat_id = {}".format(chat_id))
+    date_string = cursor.fetchone()
+
+    try:
+        date_string = date_string[0]
+    except TypeError as err:
+        print("TypeError: ", err)
+        bot.send_message(chat_id, "🔴 Ошибка")
+    else:
+        date = datetime.strptime(date_string, "%Y-%m-%d")
+        return date.date()
+
+    conn.close()
+
+
 # DISPLAY DATA FUNCTIONS
 
-def return_balance(cursor, message, per, now):
+def return_balance(cursor, chat_id, per, now):
     balance = 0
     cursor.execute('''
         SELECT sum
         FROM transactions 
         WHERE (chat_id = {}) 
-        AND strftime("{}", date) = strftime("{}", "{}")'''.format(message.chat.id, per, per, now))
+        AND strftime("{}", date) = strftime("{}", "{}")'''.format(chat_id, per, per, now))
     result = cursor.fetchall()
 
     for tple in result:
@@ -183,26 +217,24 @@ def return_balance(cursor, message, per, now):
     return balance
 
 
-def stat(message, period):
-    now = datetime.today()
+def stat_msg(chat_id, period, date):
     output_sum = 0
     categories_list = []
 
     if period == "day":
         per = "%d%m%Y"
-        period_string = now.strftime("%A, ").title() + "{} ".format(int(now.strftime("%d"))) + months[int(now.strftime("%m"))]
+        period_string = date.strftime("%A, ").title() + "{} ".format(int(date.strftime("%d"))) + months[int(date.strftime("%m")) - 1]
     elif period == "week":
         per = "%W%Y"
-        monday = now - timedelta(now.weekday())
-        sunday = now + timedelta(6 - now.weekday())
-        period_string = "{} ".format(int(monday.strftime("%d"))) + months[int(monday.strftime("%m"))] + \
-                        " — {} ".format(int(sunday.strftime("%d"))) + months[int(sunday.strftime("%m"))]
+        monday = date - timedelta(date.weekday())
+        sunday = date + timedelta(6 - date.weekday())
+        period_string = "{} ".format(int(monday.strftime("%d"))) + months[int(monday.strftime("%m")) - 1] + " — {} ".format(int(sunday.strftime("%d"))) + months[int(sunday.strftime("%m")) - 1]
     elif period == "month":
         per = "%m%Y"
-        period_string = now.strftime("%B")
+        period_string = date.strftime("%B %Y")
     elif period == "year":
         per = "%Y"
-        period_string = now.strftime("%Y год")
+        period_string = date.strftime("%Y год")
     else:
         per = "%d%m%Y"
         period_string = per
@@ -211,14 +243,14 @@ def stat(message, period):
 
     conn = sqlite3.connect('mbb_data.db')
     cursor = conn.cursor()
-    balance = return_balance(cursor, message, per, now)
+    balance = return_balance(cursor, chat_id, per, date)
     for category in output_categories:
         cursor.execute('''
-            SELECT sum
-            FROM transactions 
-            WHERE chat_id = {} 
-            AND strftime("{}", date) = strftime("{}", "{}")
-            AND category = "{}"'''.format(message.chat.id, per, per, now, category))
+                SELECT sum
+                FROM transactions 
+                WHERE chat_id = {} 
+                AND strftime("{}", date) = strftime("{}", "{}")
+                AND category = "{}"'''.format(chat_id, per, per, date, category))
         result = cursor.fetchone()
         if result != None:
             categories_list.append([category, result[0]])
@@ -229,19 +261,26 @@ def stat(message, period):
         msg += "{}: {} ({}%)\n".format(category[0], abs(category[1]), round(category[1] / output_sum * 100))
     msg += "\nБаланс: {}".format(balance)
 
-    bot.send_message(message.chat.id, msg)
+    return msg
+
+
+def stat(message, period):
+    date = datetime.date(datetime.now())
+    set_date(message.chat.id, date)
+    msg = stat_msg(message.chat.id, period, date)
     cancel_transaction(message)
-    signs_keyboard(message, "Введите знак: ")
+    bot.send_message(message.chat.id, msg, reply_markup=arrows_inline_keyboard())
+    bot.send_message(message.chat.id, "Введите знак: ", reply_markup=signs_keyboard())
 
 
 # KEYBOARDS:
 
-def signs_keyboard(message, keyboard_message):
+def signs_keyboard():
     keyboard = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
     keyboard.add("+")
     keyboard.add("-")
 
-    bot.send_message(message.chat.id, keyboard_message, reply_markup=keyboard)
+    return keyboard
 
 
 def input_categories_keyboard(message):
@@ -264,6 +303,14 @@ def output_categories_keyboard(message):
     bot.send_message(message.chat.id, "Выберите категорию: ", reply_markup=keyboard)
 
 
+def arrows_inline_keyboard():
+    keyboard = types.InlineKeyboardMarkup()
+    btn_left = types.InlineKeyboardButton(text="⬅️ Ранее", callback_data="LEFT")
+    btn_right = types.InlineKeyboardButton(text="Позднее ➡️", callback_data="RIGHT")
+    keyboard.add(btn_left, btn_right)
+    return keyboard
+
+
 # HANDLERS
 
 @bot.message_handler(commands=['test'])
@@ -273,14 +320,6 @@ def test(message):
         keyboard.row(row[0], row[1], row[2], row[3], row[4])
 
     bot.send_message(message.chat.id, "Выберите категорию: ", reply_markup=keyboard)
-
-
-@bot.callback_query_handler(func=lambda call: True)
-def callback_inline(call):
-    if call.data == "-":
-        bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id, text="Минус")
-    elif call.data == "+":
-        bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id, text="Минус")
 
 
 @bot.message_handler(commands=['start'])
@@ -319,24 +358,28 @@ def help(message):
 @bot.message_handler(commands=['day'])
 def day(message):
     console_print(message)
+    set_period(message.chat.id, "day")
     stat(message, "day")
 
 
 @bot.message_handler(commands=['week'])
 def week(message):
     console_print(message)
+    set_period(message, "week")
     stat(message, "week")
 
 
 @bot.message_handler(commands=['month'])
 def month(message):
     console_print(message)
+    set_period(message, "month")
     stat(message, "month")
 
 
 @bot.message_handler(commands=['year'])
 def year(message):
     console_print(message)
+    set_period(message, "year")
     stat(message, "year")
 
 
@@ -344,7 +387,18 @@ def year(message):
 def cancel(message):
     console_print(message)
     cancel_transaction(message)
-    signs_keyboard(message, "Ввод отменен. Введите знак: ")
+    bot.send_message(message.chat.id, "Ввод отменен. Введите знак: ", reply_markup=signs_keyboard())
+
+
+@bot.callback_query_handler(func=lambda call: True)
+def callback_inline(call):
+    date = return_date(call.message.chat.id)
+    print(date)
+    if call.data == "LEFT":
+        date = date - timedelta(1)
+    elif call.data == "RIGHT":
+        date = date + timedelta(1)
+    set_date(call.message.chat.id, date)
 
 
 @bot.message_handler()
