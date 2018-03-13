@@ -62,6 +62,60 @@ def return_state(message):
     conn.close()
 
 
+def return_balance(cursor, chat_id, per, now):
+    balance = 0
+    cursor.execute('''
+        SELECT sum
+        FROM transactions 
+        WHERE (chat_id = {}) 
+        AND strftime("{}", date) = strftime("{}", "{}")'''.format(chat_id, per, per, now))
+    result = cursor.fetchall()
+
+    for tple in result:
+        for i in tple:
+            balance += i
+
+    return balance
+
+
+# KEYBOARDS:
+
+def signs_keyboard():
+    keyboard = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+    keyboard.add("+")
+    keyboard.add("-")
+
+    return keyboard
+
+
+def input_categories_keyboard(message):
+    keyboard = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+    for category in input_categories:
+        keyboard.add(category)
+
+    bot.send_message(message.chat.id, "Выберите категорию: ", reply_markup=keyboard)
+
+
+def output_categories_keyboard(message):
+    keyboard = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+
+    rows = []
+    for i in range(0, len(output_categories), 3):
+        rows.append(output_categories[i: i + 3])
+    for row in rows:
+        keyboard.row(row[0], row[1], row[2])
+
+    bot.send_message(message.chat.id, "Выберите категорию: ", reply_markup=keyboard)
+
+
+def arrows_inline_keyboard():
+    keyboard = types.InlineKeyboardMarkup()
+    btn_left = types.InlineKeyboardButton(text="⬅️ Ранее", callback_data="LEFT")
+    btn_right = types.InlineKeyboardButton(text="Позднее ➡️", callback_data="RIGHT")
+    keyboard.add(btn_left, btn_right)
+    return keyboard
+
+
 # ADD AND UPDATE DATA FUNCTIONS:
 
 def set_state(message, state):
@@ -201,22 +255,6 @@ def return_date(chat_id):
 
 # DISPLAY DATA FUNCTIONS
 
-def return_balance(cursor, chat_id, per, now):
-    balance = 0
-    cursor.execute('''
-        SELECT sum
-        FROM transactions 
-        WHERE (chat_id = {}) 
-        AND strftime("{}", date) = strftime("{}", "{}")'''.format(chat_id, per, per, now))
-    result = cursor.fetchall()
-
-    for tple in result:
-        for i in tple:
-            balance += i
-
-    return balance
-
-
 def stat_msg(chat_id, period, date):
     output_sum = 0
     categories_list = []
@@ -273,42 +311,10 @@ def stat(message, period):
     bot.send_message(message.chat.id, "Введите знак: ", reply_markup=signs_keyboard())
 
 
-# KEYBOARDS:
-
-def signs_keyboard():
-    keyboard = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
-    keyboard.add("+")
-    keyboard.add("-")
-
-    return keyboard
-
-
-def input_categories_keyboard(message):
-    keyboard = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
-    for category in input_categories:
-        keyboard.add(category)
-
-    bot.send_message(message.chat.id, "Выберите категорию: ", reply_markup=keyboard)
-
-
-def output_categories_keyboard(message):
-    keyboard = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
-
-    rows = []
-    for i in range(0, len(output_categories), 3):
-        rows.append(output_categories[i: i + 3])
-    for row in rows:
-        keyboard.row(row[0], row[1], row[2])
-
-    bot.send_message(message.chat.id, "Выберите категорию: ", reply_markup=keyboard)
-
-
-def arrows_inline_keyboard():
-    keyboard = types.InlineKeyboardMarkup()
-    btn_left = types.InlineKeyboardButton(text="⬅️ Ранее", callback_data="LEFT")
-    btn_right = types.InlineKeyboardButton(text="Позднее ➡️", callback_data="RIGHT")
-    keyboard.add(btn_left, btn_right)
-    return keyboard
+def edit_stat_msg(call):
+    date = return_date(call.message.chat.id)
+    bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id,
+                          text=stat_msg(call.message.chat.id, "day", date), reply_markup=arrows_inline_keyboard())
 
 
 # HANDLERS
@@ -328,8 +334,7 @@ def start(message):
 
     add_user(message)
 
-    bot.send_message(message.chat.id, "Добро пожаловать, {}!".format(return_name(message)))
-    signs_keyboard(message, "Введите знак: ")
+    bot.send_message(message.chat.id, "Добро пожаловать, {}!".format(return_name(message)), reply_markup=signs_keyboard())
 
 
 @bot.message_handler(commands=['help'])
@@ -393,12 +398,12 @@ def cancel(message):
 @bot.callback_query_handler(func=lambda call: True)
 def callback_inline(call):
     date = return_date(call.message.chat.id)
-    print(date)
     if call.data == "LEFT":
         date = date - timedelta(1)
     elif call.data == "RIGHT":
         date = date + timedelta(1)
     set_date(call.message.chat.id, date)
+    edit_stat_msg(call)
 
 
 @bot.message_handler()
